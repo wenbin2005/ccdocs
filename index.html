@@ -4,6 +4,8 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Veldara</title>
+<!-- 有 JS 才套用「捲動後才出現」的初始隱藏狀態；停用 JS 時內容直接可見 -->
+<script>document.documentElement.className += ' js';</script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -16,6 +18,10 @@ body { font-family: 'Inter', sans-serif; background: #010101; color: #fff; }
 .absolute { position: absolute; }
 .relative { position: relative; }
 .inset-0 { top: 0; right: 0; bottom: 0; left: 0; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
 
 /* Scroll Video */
 #scroll-video-container {
@@ -28,10 +34,10 @@ body { font-family: 'Inter', sans-serif; background: #010101; color: #fff; }
 }
 #scroll-video-container .overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.2); }
 
-/* Particles */
+/* Particles：放在內容層之下，星點不壓到文字 */
 #particles-canvas {
   position: fixed; inset: 0; width: 100%; height: 100%;
-  pointer-events: none; z-index: 3;
+  pointer-events: none; z-index: 1;
 }
 
 /* Nav */
@@ -53,6 +59,8 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
 #hero {
   position: relative; height: 100vh; height: 100svh; width: 100%; display: flex; flex-direction: column;
 }
+/* 捲動淡出時若焦點在 hero 內（例如鍵盤 Tab 回到 CTA），強制完全不透明，焦點才看得見 */
+#hero:focus-within { opacity: 1 !important; }
 #hero .gradient-overlay {
   position: absolute; inset: 0;
   background: linear-gradient(to top, rgba(0,0,0,0.6), transparent, transparent);
@@ -80,7 +88,7 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
   background: #1a1a1a; border: 1px solid rgba(55,65,81,0.5);
   border-radius: 0.5rem; padding: 0.875rem 2rem;
 }
-#hero .code-box .prompt { color: #2C5C88; font-family: monospace; font-size: 0.875rem; }
+#hero .code-box .prompt { color: #6fa8dc; font-family: monospace; font-size: 0.875rem; }
 #hero .code-box code { font-size: 0.875rem; color: #e5e7eb; font-family: monospace; }
 #hero .cta-btn {
   display: inline-flex; align-items: center; gap: 0.5rem;
@@ -98,10 +106,11 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
   50% { transform: translateY(-25%); }
 }
 
-/* Cards */
-#fixed-cards {
+/* Cards：停用 JS 時照一般排版顯示；有 JS 才固定在底部、隨捲動出現 */
+#fixed-cards { position: relative; padding: 2rem 2.5rem; }
+.js #fixed-cards {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 4;
-  padding: 2rem 2.5rem; opacity: 0; pointer-events: none;
+  opacity: 0; pointer-events: none;
 }
 #fixed-cards .grid {
   max-width: 72rem; margin: 0 auto;
@@ -109,6 +118,11 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
 }
 #fixed-cards .card h3 { font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 1rem; }
 #fixed-cards .card p { color: #d1d5db; font-size: 0.875rem; line-height: 1.6; }
+
+/* 捲動距離：只有 JS 驅動時才需要 */
+.js .spacer-1 { height: 150vh; }
+.js #features { height: 200vh; }
+.js .spacer-2 { height: 100vh; }
 
 /* Section 3 */
 #section-three {
@@ -118,10 +132,10 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
 #section-three .inner {
   position: relative; z-index: 10; display: flex; flex-direction: column;
   align-items: center; text-align: center;
-  opacity: 0; transform: translateY(32px); filter: blur(8px);
   transition: opacity 1s ease-out, transform 1s ease-out, filter 1s ease-out;
 }
-#section-three .inner.visible { opacity: 1; transform: translateY(0); filter: blur(0); }
+.js #section-three .inner { opacity: 0; transform: translateY(32px); filter: blur(8px); }
+.js #section-three .inner.visible { opacity: 1; transform: translateY(0); filter: blur(0); }
 #section-three .inner p { color: #d1d5db; font-size: 1rem; margin-bottom: 0.75rem; }
 #section-three .inner h2 { font-size: clamp(1.875rem, 6vw, 4.5rem); font-weight: 700; }
 
@@ -140,17 +154,19 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
   #section-three { padding-bottom: 5rem; }
 }
 
-/* 尊重系統「減少動態」：停掉無限彈跳與模糊進場 */
+/* 尊重系統「減少動態」：停掉無限彈跳與模糊進場，卡片不做擦除遮罩 */
 @media (prefers-reduced-motion: reduce) {
   #hero .bounce-arrow svg { animation: none; }
-  #section-three .inner { filter: none; transform: none; transition: opacity 0.3s ease-out; }
+  #section-three .inner,
+  .js #section-three .inner { filter: none; transform: none; transition: opacity 0.3s ease-out; }
+  #fixed-cards .grid { -webkit-mask-image: none !important; mask-image: none !important; }
 }
 </style>
 </head>
 <body>
 
-<!-- Scroll Video Background -->
-<div id="scroll-video-container">
+<!-- Scroll Video Background（裝飾層，輔助科技略過） -->
+<div id="scroll-video-container" aria-hidden="true">
   <canvas id="video-canvas"></canvas>
   <video id="video-fallback" muted playsinline preload="auto" crossorigin="anonymous"
     src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260616_212935_bbf608da-62d1-4f25-9be4-c346e4d09cc8.mp4"
@@ -158,28 +174,11 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
   <div class="overlay"></div>
 </div>
 
-<!-- Particles -->
-<canvas id="particles-canvas"></canvas>
-
-<!-- Fixed Cards -->
-<div id="fixed-cards">
-  <div class="grid">
-    <div class="card">
-      <h3>Explore Veldara</h3>
-      <p>Veldara merges the elegance of Svelte 5 with the depth of Three.js within easy reach. It's crafted to be robust and adaptable while remaining intuitive and simple to grasp.</p>
-    </div>
-    <div class="card">
-      <h3>Unlock Three.js</h3>
-      <p>The web is growing increasingly dimensional. At its heart, Veldara offers a composable declarative API for building performant Three.js experiences on the web.</p>
-    </div>
-    <div class="card">
-      <h3>Connect Everything</h3>
-      <p>Veldara ships with tooling for physics, XR, animation, layouting, model loading, and extensive utilities to make building compelling 3D apps for the web effortless.</p>
-    </div>
-  </div>
-</div>
+<!-- Particles（裝飾層） -->
+<canvas id="particles-canvas" aria-hidden="true"></canvas>
 
 <!-- Navigation -->
+<header>
 <nav>
   <div style="display:flex;align-items:center;gap:2rem;">
     <span class="logo">veldara</span>
@@ -194,9 +193,10 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
     <a href="#" aria-label="X (Twitter)"><svg aria-hidden="true" fill="currentColor" viewBox="0 0 24 24"><path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 007.557 2.209c9.053 0 13.998-7.496 13.998-13.985 0-.21 0-.42-.015-.63A9.935 9.935 0 0024 4.59z"/></svg></a>
   </div>
 </nav>
+</header>
 
-<!-- Main Content -->
-<div id="content">
+<!-- Main Content：閱讀順序＝hero → 功能卡 → 結尾 -->
+<main id="content">
   <!-- Section 1: Hero -->
   <section id="hero">
     <div class="gradient-overlay"></div>
@@ -209,10 +209,10 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
       </h1>
       <div class="ctas">
         <div class="code-box">
-          <span class="prompt">&gt;</span>
+          <span class="prompt" aria-hidden="true">&gt;</span>
           <code>npm i @veldara/core</code>
         </div>
-        <a href="#" class="cta-btn">Get Started <span>&rarr;</span></a>
+        <a href="#" class="cta-btn">Get Started <span aria-hidden="true">&rarr;</span></a>
       </div>
     </div>
     <div class="bounce-arrow">
@@ -221,13 +221,31 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
   </section>
 
   <!-- Spacer -->
-  <div style="height:150vh;"></div>
+  <div class="spacer-1" aria-hidden="true"></div>
 
-  <!-- Cards Trigger Zone -->
-  <div id="cards-trigger" style="height:200vh;"></div>
+  <!-- Cards Trigger Zone：卡片本身固定在畫面底部 -->
+  <section id="features" aria-labelledby="features-title">
+    <h2 id="features-title" class="sr-only">Features</h2>
+    <div id="fixed-cards">
+      <div class="grid">
+        <div class="card">
+          <h3>Explore Veldara</h3>
+          <p>Veldara merges the elegance of Svelte 5 with the depth of Three.js within easy reach. It's crafted to be robust and adaptable while remaining intuitive and simple to grasp.</p>
+        </div>
+        <div class="card">
+          <h3>Unlock Three.js</h3>
+          <p>The web is growing increasingly dimensional. At its heart, Veldara offers a composable declarative API for building performant Three.js experiences on the web.</p>
+        </div>
+        <div class="card">
+          <h3>Connect Everything</h3>
+          <p>Veldara ships with tooling for physics, XR, animation, layouting, model loading, and extensive utilities to make building compelling 3D apps for the web effortless.</p>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <!-- Spacer -->
-  <div style="height:100vh;"></div>
+  <div class="spacer-2" aria-hidden="true"></div>
 
   <!-- Section 3 -->
   <section id="section-three">
@@ -236,15 +254,33 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
       <h2>Veldara 8</h2>
     </div>
   </section>
-</div>
+</main>
 
 <script>
 (function() {
-  // ===================== SCROLL VIDEO =====================
+  // ===================== 共用參照（全部先宣告，避免中途出錯時後面的函式碰到未初始化的常數） =====================
   const VIDEO_URL = 'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260616_212935_bbf608da-62d1-4f25-9be4-c346e4d09cc8.mp4';
   const canvas = document.getElementById('video-canvas');
   const videoEl = document.getElementById('video-fallback');
   const ctx = canvas.getContext('2d');
+  const heroEl = document.getElementById('hero');
+  const fixedCards = document.getElementById('fixed-cards');
+  const cardsGrid = fixedCards.querySelector('.grid');
+  const cardsTrigger = document.getElementById('features');
+  const sectionThreeInner = document.getElementById('section-three-inner');
+  const pCanvas = document.getElementById('particles-canvas');
+  const pCtx = pCanvas.getContext('2d');
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  // 與 CSS 斷點同一條件（含 768px），卡片揭示方向才會和單欄排版一致
+  const mobileMQ = window.matchMedia('(max-width: 768px)');
+
+  // 舊版 Safari（≤13）的 MediaQueryList 沒有 addEventListener，退回 addListener
+  function onMediaChange(mq, fn) {
+    if (typeof mq.addEventListener === 'function') mq.addEventListener('change', fn);
+    else if (typeof mq.addListener === 'function') mq.addListener(fn);
+  }
+
+  // ===================== SCROLL VIDEO =====================
   let frames = [];
   let framesReady = false;
   let lastFrameIndex = -1;
@@ -315,6 +351,8 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
   }
 
   function getProgress() {
+    // 減少動態：背景固定在第一格，不隨捲動換影格
+    if (reduceMotion.matches) return 0;
     const { start, end } = getScrollBounds();
     const range = end - start;
     if (range <= 0) return 0;
@@ -364,36 +402,41 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
   extractFrames();
 
   // ===================== PARTICLES =====================
-  const pCanvas = document.getElementById('particles-canvas');
-  const pCtx = pCanvas.getContext('2d');
   let particles = [];
-
-  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   let pDpr = 1;
   let particlesRunning = false;
+  let pW = 0, pH = 0;
+
+  function makeParticle(w, h) {
+    return {
+      x: Math.random() * w,
+      y: Math.random() * h,
+      vx: (Math.random() - 0.5) * 0.3,
+      vy: (Math.random() - 0.5) * 0.3,
+      size: Math.random() * 1.5 + 0.5,
+      opacity: Math.random() * 0.6 + 0.2
+    };
+  }
 
   function resizeParticles() {
     // 依裝置像素比放大畫布，Retina 螢幕粒子才不會糊
     pDpr = Math.min(devicePixelRatio, 2);
-    pCanvas.width = Math.round(window.innerWidth * pDpr);
-    pCanvas.height = Math.round(window.innerHeight * pDpr);
-    createParticles();
-    if (!particlesRunning) drawParticles();
+    const w = window.innerWidth, h = window.innerHeight;
+    pCanvas.width = Math.round(w * pDpr);
+    pCanvas.height = Math.round(h * pDpr);
+    // 手機網址列收合只改高度幾十 px：保留原本的星點，不整片重排；面積變化超過 15% 或寬度改變才增減
+    const areaChange = pW && pH ? Math.abs(w * h - pW * pH) / (pW * pH) : 1;
+    if (!particles.length || w !== pW || areaChange > 0.15) adjustParticles(w, h);
+    pW = w; pH = h;
+    if (!particlesRunning) drawParticles(false);
   }
 
-  function createParticles() {
-    particles = [];
-    const count = Math.floor((window.innerWidth * window.innerHeight) / 12000);
-    for (let i = 0; i < count; i++) {
-      particles.push({
-        x: Math.random() * window.innerWidth,
-        y: Math.random() * window.innerHeight,
-        vx: (Math.random() - 0.5) * 0.3,
-        vy: (Math.random() - 0.5) * 0.3,
-        size: Math.random() * 1.5 + 0.5,
-        opacity: Math.random() * 0.6 + 0.2
-      });
-    }
+  function adjustParticles(w, h) {
+    const count = Math.floor((w * h) / 12000);
+    // 先丟掉超出新範圍的，再依數量補齊或刪減
+    particles = particles.filter(p => p.x <= w && p.y <= h);
+    while (particles.length < count) particles.push(makeParticle(w, h));
+    if (particles.length > count) particles.length = count;
   }
 
   function drawParticles(move) {
@@ -401,11 +444,13 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
     pCtx.setTransform(pDpr, 0, 0, pDpr, 0, 0);
     pCtx.clearRect(0, 0, w, h);
     for (const p of particles) {
-      if (move) { p.x += p.vx; p.y += p.vy; }
-      if (p.x < 0) p.x = w;
-      if (p.x > w) p.x = 0;
-      if (p.y < 0) p.y = h;
-      if (p.y > h) p.y = 0;
+      if (move) {
+        p.x += p.vx; p.y += p.vy;
+        if (p.x < 0) p.x = w;
+        if (p.x > w) p.x = 0;
+        if (p.y < 0) p.y = h;
+        if (p.y > h) p.y = 0;
+      }
       pCtx.beginPath();
       pCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
       pCtx.fillStyle = `rgba(255,255,255,${p.opacity})`;
@@ -428,23 +473,20 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
   resizeParticles();
   window.addEventListener('resize', resizeParticles);
   document.addEventListener('visibilitychange', startParticles);
-  reduceMotion.addEventListener('change', startParticles);
+  onMediaChange(reduceMotion, () => { startParticles(); lastFrameIndex = -1; requestTick(); });
+  onMediaChange(mobileMQ, requestTick);
   startParticles();
 
   // ===================== HERO FADE =====================
   function updateHeroOpacity() {
     const fade = Math.max(0, 1 - window.scrollY / (window.innerHeight * 0.3));
-    document.getElementById('hero').style.opacity = fade;
+    heroEl.style.opacity = fade;
   }
   window.addEventListener('scroll', updateHeroOpacity, { passive: true });
 
   // ===================== FIXED CARDS =====================
-  const fixedCards = document.getElementById('fixed-cards');
-  const cardsGrid = fixedCards.querySelector('.grid');
-
   function tickCards() {
-    const trigger = document.getElementById('cards-trigger');
-    const rect = trigger.getBoundingClientRect();
+    const rect = cardsTrigger.getBoundingClientRect();
     const triggerTop = rect.top + window.scrollY;
     const triggerHeight = rect.height;
     const scrollY = window.scrollY;
@@ -465,9 +507,14 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
     fixedCards.style.opacity = containerOpacity;
     fixedCards.style.pointerEvents = containerOpacity > 0.1 ? 'auto' : 'none';
 
-    const isMobile = window.innerWidth < 768;
+    // 減少動態：不做擦除遮罩，直接顯示
+    if (reduceMotion.matches) {
+      cardsGrid.style.maskImage = '';
+      cardsGrid.style.webkitMaskImage = '';
+      return;
+    }
     const revealPct = progress * 130;
-    if (isMobile) {
+    if (mobileMQ.matches) {
       cardsGrid.style.maskImage = `linear-gradient(to bottom, black ${revealPct}%, transparent ${revealPct + 20}%)`;
       cardsGrid.style.webkitMaskImage = `linear-gradient(to bottom, black ${revealPct}%, transparent ${revealPct + 20}%)`;
     } else {
@@ -478,7 +525,6 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
   requestTick();
 
   // ===================== SECTION 3 INTERSECTION =====================
-  const sectionThreeInner = document.getElementById('section-three-inner');
   const observer = new IntersectionObserver(([entry]) => {
     if (entry.isIntersecting) {
       sectionThreeInner.classList.add('visible');
