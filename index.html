@@ -8,8 +8,16 @@
 <script>document.documentElement.className += ' js';</script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<!-- 字型樣式表不擋首次繪製：先預載、載完才套用；停用 JS 時由 noscript 直接載入 -->
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" /></noscript>
 <style>
+/* Inter 載入前的後援字型：以 Arial 系字型調整字寬與上下緣，換字時版面幾乎不跳 */
+@font-face {
+  font-family: 'Inter Fallback';
+  src: local('Arial'), local('Helvetica'), local('Liberation Sans'), local('Arimo');
+  size-adjust: 107%; ascent-override: 90.5%; descent-override: 22.6%; line-gap-override: 0%;
+}
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 /* 動效 token：進出場用強 ease-out，畫面內移動用 ease-in-out；按壓回饋 160ms */
 :root {
@@ -23,7 +31,7 @@
 html, body { overflow-x: hidden; }
 /* 鍵盤焦點環：亮藍 2px，對深色背景約 10:1 */
 a:focus-visible, button:focus-visible { outline: 2px solid #8cc4ff; outline-offset: 3px; }
-body { font-family: 'Inter', sans-serif; background: #010101; color: #fff; }
+body { font-family: 'Inter', 'Inter Fallback', sans-serif; background: #010101; color: #fff; }
 
 .fixed { position: fixed; }
 .absolute { position: absolute; }
