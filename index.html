@@ -11,7 +11,18 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <style>
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+/* 動效 token：進出場用強 ease-out，畫面內移動用 ease-in-out；按壓回饋 160ms */
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --dur-press: 160ms;
+  --dur-fast: 200ms;
+  --dur-reveal: 480ms;
+  --stagger: 60ms;
+}
 html, body { overflow-x: hidden; }
+/* 鍵盤焦點環：亮藍 2px，對深色背景約 10:1 */
+a:focus-visible, button:focus-visible { outline: 2px solid #8cc4ff; outline-offset: 3px; }
 body { font-family: 'Inter', sans-serif; background: #010101; color: #fff; }
 
 .fixed { position: fixed; }
@@ -61,6 +72,14 @@ nav {
   position: fixed; top: 0; left: 0; right: 0; z-index: 50;
   display: flex; align-items: center; justify-content: space-between;
   padding: 1.25rem 2.5rem;
+  transition: background-color var(--dur-fast) ease, box-shadow var(--dur-fast) ease;
+}
+/* 往下捲後導覽列出現半透明背板，任何背景上都看得清楚 */
+nav.is-scrolled {
+  background-color: rgba(4, 7, 14, 0.72);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 nav .logo { font-weight: 700; font-size: 1.25rem; color: #fff; letter-spacing: -0.025em; }
 nav .nav-links { display: flex; align-items: center; gap: 1.5rem; }
@@ -99,6 +118,14 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
 #hero .ctas {
   display: flex; align-items: center; gap: 1rem; margin-top: 2.5rem; flex-wrap: wrap; justify-content: center;
 }
+/* 首屏進場：eyebrow → 標題 → CTA 依序浮現（間隔 60ms，全部 600ms 內完成），底線由左畫入 */
+#hero .subtitle, #hero h1, #hero .ctas { animation: rise var(--dur-reveal) var(--ease-out) both; }
+#hero h1 { animation-delay: var(--stagger); }
+#hero .ctas { animation-delay: calc(var(--stagger) * 2); }
+#hero h1 .underlined .line { animation: draw 400ms var(--ease-out) 200ms both; }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes draw { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
 #hero .code-box {
   display: flex; align-items: center; gap: 0.5rem;
   background: #1a1a1a; border: 1px solid rgba(55,65,81,0.5);
@@ -109,17 +136,29 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
 #hero .cta-btn {
   display: inline-flex; align-items: center; gap: 0.5rem;
   background: #2C5C88; color: #fff; font-weight: 500; border-radius: 0.5rem;
-  padding: 0.875rem 2rem; font-size: 0.875rem; text-decoration: none; transition: background 0.2s;
+  padding: 0.875rem 2rem; font-size: 0.875rem; text-decoration: none;
+  transition: background-color var(--dur-fast) ease, box-shadow var(--dur-fast) ease, transform var(--dur-press) var(--ease-out);
 }
+#hero .cta-btn span { display: inline-block; transition: transform var(--dur-fast) var(--ease-out); }
 #hero .cta-btn:hover { background: #3a7aad; }
+/* 只有滑鼠才做 hover 位移與光暈；觸控點按不會卡在 hover 狀態 */
+@media (hover: hover) and (pointer: fine) {
+  #hero .cta-btn:hover { box-shadow: 0 10px 30px -12px rgba(140, 196, 255, 0.6); }
+  #hero .cta-btn:hover span { transform: translateX(3px); }
+}
+#hero .cta-btn:active { transform: scale(0.97); }
 #hero .bounce-arrow {
   position: relative; z-index: 10; display: flex; justify-content: center; padding-bottom: 2rem;
+  animation: bounce 2.4s var(--ease-in-out) infinite;
 }
-#hero .bounce-arrow svg { width: 1.5rem; height: 1.5rem; color: #6b7280; animation: bounce 1s infinite; }
+#hero .bounce-arrow svg { width: 1.5rem; height: 1.5rem; color: #6b7280; }
+/* hero 淡出後暫停提示動畫，不在看不見的地方空轉 */
+#hero.is-faded .bounce-arrow { animation-play-state: paused; }
 
+/* 往下提示：輕推一下再停一下，不要一直跳（動畫放在 HTML 容器上，可交給合成器，不必每幀重算樣式） */
 @keyframes bounce {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-25%); }
+  0%, 55%, 100% { transform: translateY(0); }
+  28% { transform: translateY(6px); }
 }
 
 /* Cards：停用 JS 時照一般排版顯示；有 JS 才固定在底部、隨捲動出現 */
@@ -134,6 +173,12 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
 }
 #fixed-cards .card h3 { font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 1rem; }
 #fixed-cards .card p { color: #d1d5db; font-size: 0.875rem; line-height: 1.6; }
+/* 卡片揭示：進場依序錯開 60ms（只動 opacity／transform）；離場同時收起，比進場快 */
+#fixed-cards .card { transition: opacity var(--dur-reveal) var(--ease-out), transform var(--dur-reveal) var(--ease-out); }
+.js #fixed-cards .card { opacity: 0; transform: translateY(16px); }
+.js #fixed-cards.is-revealed .card { opacity: 1; transform: none; }
+.js #fixed-cards.is-revealed .card:nth-child(2) { transition-delay: var(--stagger); }
+.js #fixed-cards.is-revealed .card:nth-child(3) { transition-delay: calc(var(--stagger) * 2); }
 
 /* 捲動距離：只有 JS 驅動時才需要 */
 .js .spacer-1 { height: 150vh; }
@@ -148,7 +193,7 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
 #section-three .inner {
   position: relative; z-index: 10; display: flex; flex-direction: column;
   align-items: center; text-align: center;
-  transition: opacity 1s ease-out, transform 1s ease-out, filter 1s ease-out;
+  transition: opacity 1s var(--ease-out), transform 1s var(--ease-out), filter 1s var(--ease-out);
 }
 .js #section-three .inner { opacity: 0; transform: translateY(32px); filter: blur(8px); }
 .js #section-three .inner.visible { opacity: 1; transform: translateY(0); filter: blur(0); }
@@ -170,12 +215,18 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
   #section-three { padding-bottom: 5rem; }
 }
 
-/* 尊重系統「減少動態」：停掉無限彈跳與模糊進場，卡片不做擦除遮罩 */
+/* 尊重系統「減少動態」：保留淡入淡出，拿掉所有位移、縮放、模糊與無限動畫 */
 @media (prefers-reduced-motion: reduce) {
-  #hero .bounce-arrow svg { animation: none; }
+  #hero .bounce-arrow { animation: none; }
+  #hero .subtitle, #hero h1, #hero .ctas { animation-name: fade-in; }
+  #hero h1 .underlined .line { animation: none; }
+  #hero .cta-btn { transition: background-color var(--dur-fast) ease, box-shadow var(--dur-fast) ease; }
+  #hero .cta-btn span { transition: none; }
+  #hero .cta-btn:active, #hero .cta-btn:hover span { transform: none; }
   #section-three .inner,
   .js #section-three .inner { filter: none; transform: none; transition: opacity 0.3s ease-out; }
-  #fixed-cards .grid { -webkit-mask-image: none !important; mask-image: none !important; }
+  #fixed-cards .card,
+  .js #fixed-cards .card { transform: none; transition: opacity 0.3s ease-out; }
 }
 </style>
 </head>
@@ -284,14 +335,11 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
   const bgInfo = window.__veldaraBg = { renders: 0, state: 'css' };
   const heroEl = document.getElementById('hero');
   const fixedCards = document.getElementById('fixed-cards');
-  const cardsGrid = fixedCards.querySelector('.grid');
   const cardsTrigger = document.getElementById('features');
   const sectionThreeInner = document.getElementById('section-three-inner');
   const pCanvas = document.getElementById('particles-canvas');
   const pCtx = pCanvas.getContext('2d');
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-  // 與 CSS 斷點同一條件（含 768px），卡片揭示方向才會和單欄排版一致
-  const mobileMQ = window.matchMedia('(max-width: 768px)');
 
   // 舊版 Safari（≤13）的 MediaQueryList 沒有 addEventListener，退回 addListener
   function onMediaChange(mq, fn) {
@@ -701,17 +749,30 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
     lastFrameIndex = -1;
     requestTick();
   });
-  onMediaChange(mobileMQ, requestTick);
   startParticles();
 
-  // ===================== HERO FADE =====================
+  // ===================== HERO FADE＋導覽列背板 =====================
+  // 只在數值真的改變時才寫 style，捲動時少做樣式重算
+  const navEl = document.querySelector('nav');
+  let heroOpacity = -1;
+  let navScrolled = false;
   function updateHeroOpacity() {
-    const fade = Math.max(0, 1 - window.scrollY / (window.innerHeight * 0.3));
-    heroEl.style.opacity = fade;
+    const fade = Math.round(Math.max(0, 1 - window.scrollY / (window.innerHeight * 0.3)) * 1000) / 1000;
+    if (fade !== heroOpacity) {
+      if ((fade === 0) !== (heroOpacity === 0)) heroEl.classList.toggle('is-faded', fade === 0);
+      heroOpacity = fade;
+      heroEl.style.opacity = fade;
+    }
+    const scrolled = window.scrollY > 8;
+    if (scrolled !== navScrolled) { navScrolled = scrolled; navEl.classList.toggle('is-scrolled', scrolled); }
   }
   window.addEventListener('scroll', updateHeroOpacity, { passive: true });
+  updateHeroOpacity();
 
   // ===================== FIXED CARDS =====================
+  // 容器依捲動淡入淡出；三張卡片在進入範圍時以 class 觸發錯開進場（CSS transition，不再逐幀改遮罩）
+  let cardsOpacity = -1;
+  let cardsRevealed = false;
   function tickCards() {
     const rect = cardsTrigger.getBoundingClientRect();
     const triggerTop = rect.top + window.scrollY;
@@ -721,33 +782,19 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
 
     const start = triggerTop - vh * 0.5;
     const end = triggerTop + triggerHeight - vh * 0.3;
-    const range = end - start;
-
-    let progress = range > 0 ? (scrollY - start) / range : 0;
-    progress = Math.max(0, Math.min(1, progress));
 
     const isActive = scrollY >= start - vh * 0.2 && scrollY <= end + vh * 0.3;
     const fadeIn = Math.min(1, Math.max(0, (scrollY - (start - vh * 0.2)) / (vh * 0.2)));
     const fadeOut = Math.min(1, Math.max(0, (end + vh * 0.3 - scrollY) / (vh * 0.3)));
-    const containerOpacity = isActive ? Math.min(fadeIn, fadeOut) : 0;
+    const containerOpacity = isActive ? Math.round(Math.min(fadeIn, fadeOut) * 1000) / 1000 : 0;
 
-    fixedCards.style.opacity = containerOpacity;
-    fixedCards.style.pointerEvents = containerOpacity > 0.1 ? 'auto' : 'none';
-
-    // 減少動態：不做擦除遮罩，直接顯示
-    if (reduceMotion.matches) {
-      cardsGrid.style.maskImage = '';
-      cardsGrid.style.webkitMaskImage = '';
-      return;
+    if (containerOpacity !== cardsOpacity) {
+      cardsOpacity = containerOpacity;
+      fixedCards.style.opacity = containerOpacity;
+      fixedCards.style.pointerEvents = containerOpacity > 0.1 ? 'auto' : 'none';
     }
-    const revealPct = progress * 130;
-    if (mobileMQ.matches) {
-      cardsGrid.style.maskImage = `linear-gradient(to bottom, black ${revealPct}%, transparent ${revealPct + 20}%)`;
-      cardsGrid.style.webkitMaskImage = `linear-gradient(to bottom, black ${revealPct}%, transparent ${revealPct + 20}%)`;
-    } else {
-      cardsGrid.style.maskImage = `linear-gradient(to right, black ${revealPct}%, transparent ${revealPct + 15}%)`;
-      cardsGrid.style.webkitMaskImage = `linear-gradient(to right, black ${revealPct}%, transparent ${revealPct + 15}%)`;
-    }
+    const reveal = containerOpacity > 0;
+    if (reveal !== cardsRevealed) { cardsRevealed = reveal; fixedCards.classList.toggle('is-revealed', reveal); }
   }
   requestTick();
 
