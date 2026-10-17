@@ -28,11 +28,27 @@ body { font-family: 'Inter', sans-serif; background: #010101; color: #fff; }
   position: fixed; inset: 0; z-index: -10;
   background: #0a0a0a; top: -20%;
 }
-#scroll-video-container canvas,
-#scroll-video-container video {
-  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+#scroll-video-container canvas {
+  position: absolute; inset: 0; width: 100%; height: 100%;
 }
 #scroll-video-container .overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.2); }
+
+/* 程序化背景：影片載入中、失敗、逾時或減少動態時的首屏。
+   底層 CSS 漸層是沒有 WebGL（或停用 JS）時的後援；WebGL 畫好第一幀才淡入，影片就緒後整層淡出並停止渲染 */
+#bg-layer {
+  position: fixed; inset: 0; z-index: -9; pointer-events: none;
+  background:
+    radial-gradient(120% 75% at 72% 22%, rgba(44,92,136,0.55), rgba(44,92,136,0) 62%),
+    radial-gradient(85% 60% at 18% 30%, rgba(98,86,196,0.30), rgba(98,86,196,0) 64%),
+    linear-gradient(to bottom, #081428 0%, #050a16 48%, #020307 100%);
+  transition: opacity 0.9s cubic-bezier(0.23, 1, 0.32, 1);
+}
+#bg-layer canvas {
+  position: absolute; inset: 0; width: 100%; height: 100%; display: block;
+  opacity: 0; transition: opacity 0.8s ease;
+}
+#bg-layer.gl-on canvas { opacity: 1; }
+#bg-layer.is-off { opacity: 0; }
 
 /* Particles：放在內容層之下，星點不壓到文字 */
 #particles-canvas {
@@ -165,14 +181,14 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
 </head>
 <body>
 
-<!-- Scroll Video Background（裝飾層，輔助科技略過） -->
+<!-- Scroll Video Background（裝飾層，輔助科技略過）：影片只用 fetch 下載一次，抽成影格畫在 canvas -->
 <div id="scroll-video-container" aria-hidden="true">
   <canvas id="video-canvas"></canvas>
-  <video id="video-fallback" muted playsinline preload="auto" crossorigin="anonymous"
-    src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260616_212935_bbf608da-62d1-4f25-9be4-c346e4d09cc8.mp4"
-  ></video>
   <div class="overlay"></div>
 </div>
+
+<!-- 程序化背景（裝飾層）：WebGL 星雲＋CSS 漸層後援 -->
+<div id="bg-layer" aria-hidden="true"><canvas id="bg-gl"></canvas></div>
 
 <!-- Particles（裝飾層） -->
 <canvas id="particles-canvas" aria-hidden="true"></canvas>
@@ -261,8 +277,11 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
   // ===================== 共用參照（全部先宣告，避免中途出錯時後面的函式碰到未初始化的常數） =====================
   const VIDEO_URL = 'https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260616_212935_bbf608da-62d1-4f25-9be4-c346e4d09cc8.mp4';
   const canvas = document.getElementById('video-canvas');
-  const videoEl = document.getElementById('video-fallback');
   const ctx = canvas.getContext('2d');
+  const bgLayer = document.getElementById('bg-layer');
+  const glCanvas = document.getElementById('bg-gl');
+  // 頁內計數器（驗收與除錯用）：renders＝WebGL 已畫幾幀；state＝css / webgl / video
+  const bgInfo = window.__veldaraBg = { renders: 0, state: 'css' };
   const heroEl = document.getElementById('hero');
   const fixedCards = document.getElementById('fixed-cards');
   const cardsGrid = fixedCards.querySelector('.grid');
@@ -281,10 +300,11 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
   }
 
   // ===================== SCROLL VIDEO =====================
+  const VIDEO_TIMEOUT = 25000;   // 整支影片的下載上限；逾時就留在程序化背景
   let frames = [];
   let framesReady = false;
   let lastFrameIndex = -1;
-  let videoSeeking = false;
+  let videoState = 'idle';       // idle → loading → ready／failed
 
   function resizeCanvas() {
     const dpr = Math.min(devicePixelRatio, 2);
@@ -298,24 +318,48 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
     lastFrameIndex = -1;
   }
 
-  async function extractFrames() {
-    try {
-      const response = await fetch(VIDEO_URL, { mode: 'cors' });
-      const blob = await response.blob();
-      const objectUrl = URL.createObjectURL(blob);
+  // 分頁在背景時瀏覽器會暫停解碼：等回到前景再繼續抽格，避免誤判逾時
+  function waitVisible() {
+    if (!document.hidden) return Promise.resolve();
+    return new Promise(resolve => {
+      const on = () => { if (!document.hidden) { document.removeEventListener('visibilitychange', on); resolve(); } };
+      document.addEventListener('visibilitychange', on);
+    });
+  }
+  function withTimeout(promise, ms) {
+    let timer;
+    const limit = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('timeout')), ms); });
+    return Promise.race([promise, limit]).then(
+      v => { clearTimeout(timer); return v; },
+      e => { clearTimeout(timer); throw e; }
+    );
+  }
 
-      const video = document.createElement('video');
+  // 影片只下載一次（fetch → blob），抽成影格後就釋放影片元素與 blob；任何一步失敗都把已抽的影格全部 close()
+  async function loadVideoFrames() {
+    if (videoState !== 'idle') return;
+    videoState = 'loading';
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const abortTimer = setTimeout(() => { if (controller) controller.abort(); }, VIDEO_TIMEOUT);
+    const made = [];
+    let objectUrl = null;
+    let video = null;
+    try {
+      const response = await fetch(VIDEO_URL, { mode: 'cors', signal: controller ? controller.signal : undefined });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      const blob = await response.blob();
+      clearTimeout(abortTimer);
+      objectUrl = URL.createObjectURL(blob);
+
+      video = document.createElement('video');
       video.muted = true;
       video.playsInline = true;
-      video.crossOrigin = 'anonymous';
       video.preload = 'auto';
       video.src = objectUrl;
-
-      await new Promise((resolve, reject) => {
-        video.onloadedmetadata = () => resolve();
-        video.onerror = () => reject();
-        setTimeout(() => reject(), 15000);
-      });
+      await withTimeout(new Promise((resolve, reject) => {
+        video.onloadedmetadata = resolve;
+        video.onerror = reject;
+      }), 15000);
 
       // 影格全部常駐記憶體：寬 720、最多 48 張（原本 1280 寬 120 張，約 440MB，手機會被砍分頁）
       const scale = Math.min(1, 720 / video.videoWidth);
@@ -324,25 +368,39 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
       const frameCount = Math.max(24, Math.min(48, Math.round(video.duration * 12)));
 
       for (let i = 0; i < frameCount; i++) {
-        const time = (i / (frameCount - 1)) * (video.duration - 0.05);
-        video.currentTime = time;
-        await new Promise((resolve, reject) => {
-          const onSeeked = () => { video.removeEventListener('seeked', onSeeked); resolve(); };
-          video.addEventListener('seeked', onSeeked);
-          setTimeout(() => { video.removeEventListener('seeked', onSeeked); reject(); }, 3000);
-        });
-        const bitmap = await createImageBitmap(video, { resizeWidth: scaledWidth, resizeHeight: scaledHeight });
-        frames.push(bitmap);
+        await waitVisible();
+        video.currentTime = (i / (frameCount - 1)) * (video.duration - 0.05);
+        await withTimeout(new Promise(resolve => video.addEventListener('seeked', resolve, { once: true })), 3000);
+        made.push(await createImageBitmap(video, { resizeWidth: scaledWidth, resizeHeight: scaledHeight }));
       }
 
-      if (frames.length > 0) {
-        framesReady = true;
-        canvas.style.visibility = 'visible';
-        videoEl.style.display = 'none';
-        requestTick();
-      }
-      URL.revokeObjectURL(objectUrl);
-    } catch(e) { /* fallback to video seeking */ }
+      frames = made.slice();
+      framesReady = true;
+      videoState = 'ready';
+      onVideoReady();
+    } catch (e) {
+      // 403／CORS／逾時／解碼失敗：釋放已抽出的影格，維持程序化背景
+      made.forEach(b => { if (b && b.close) b.close(); });
+      videoState = 'failed';
+    } finally {
+      made.length = 0;
+      clearTimeout(abortTimer);
+      if (video) { video.removeAttribute('src'); video.load(); }
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    }
+  }
+
+  // 減少動態時不下載影片（只會用到一張靜止畫面），改用靜態程序化背景
+  function maybeLoadVideo() {
+    if (!reduceMotion.matches) loadVideoFrames();
+  }
+
+  function onVideoReady() {
+    canvas.style.visibility = 'visible';
+    lastFrameIndex = -1;
+    requestTick();
+    bgLayer.classList.add('is-off');      // 程序化背景淡出（0.9s）後停止渲染、釋放 GPU
+    setTimeout(stopGL, 1000);
   }
 
   function getScrollBounds() {
@@ -367,39 +425,201 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
   }
 
   function videoTick() {
-    const progress = getProgress();
-    if (framesReady && frames.length > 0) {
-      const idx = Math.round(progress * (frames.length - 1));
-      if (idx !== lastFrameIndex) {
-        lastFrameIndex = idx;
-        if (frames[idx]) drawFrame(frames[idx]);
-      }
-    } else if (videoEl.duration && isFinite(videoEl.duration) && videoEl.readyState >= 1) {
-      const target = progress * videoEl.duration;
-      if (!videoSeeking && Math.abs(videoEl.currentTime - target) > 0.001) {
-        videoSeeking = true;
-        videoEl.currentTime = target;
-      }
+    if (!framesReady || !frames.length) return;
+    const idx = Math.round(getProgress() * (frames.length - 1));
+    if (idx !== lastFrameIndex) {
+      lastFrameIndex = idx;
+      if (frames[idx]) drawFrame(frames[idx]);
     }
   }
 
   // 只在捲動、縮放或影片就緒時才重畫，不再每幀空轉
   let tickQueued = false;
+  let lastScrollAt = 0;
   function requestTick() {
     if (tickQueued) return;
     tickQueued = true;
     requestAnimationFrame(() => { tickQueued = false; videoTick(); tickCards(); });
   }
-  window.addEventListener('scroll', requestTick, { passive: true });
-
-  videoEl.addEventListener('seeked', () => { videoSeeking = false; requestTick(); });
-  videoEl.addEventListener('stalled', () => { videoSeeking = false; });
-  videoEl.addEventListener('loadeddata', () => { videoEl.currentTime = 0; requestTick(); });
+  window.addEventListener('scroll', () => { lastScrollAt = performance.now(); requestTick(); }, { passive: true });
   canvas.style.visibility = 'hidden';
 
   resizeCanvas();
-  window.addEventListener('resize', () => { resizeCanvas(); requestTick(); });
-  extractFrames();
+  window.addEventListener('resize', () => { resizeCanvas(); requestTick(); if (reduceMotion.matches) renderStaticGL(); });
+
+  // ===================== 程序化背景（WebGL 星雲＋光帶） =====================
+  const GL_VERT = 'attribute vec2 p;varying vec2 v;void main(){v=p*0.5+0.5;gl_Position=vec4(p,0.0,1.0);}';
+  const GL_FRAG = [
+    '#ifdef GL_FRAGMENT_PRECISION_HIGH',
+    'precision highp float;',
+    '#else',
+    'precision mediump float;',
+    '#endif',
+    'uniform vec2 uRes; uniform float uTime; uniform float uProg; uniform vec2 uPtr;',
+    'varying vec2 v;',
+    'float h21(vec2 p){ p = fract(p * vec2(234.34, 435.345)); p += dot(p, p + 34.23); return fract(p.x * p.y); }',
+    'float noise(vec2 p){ vec2 i = floor(p); vec2 f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);',
+    '  return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), u.x), mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), u.x), u.y); }',
+    'float fbm(vec2 p){ float s = 0.0; float a = 0.5; for (int i = 0; i < 5; i++) { s += a * noise(p); p = mat2(1.6, 1.2, -1.2, 1.6) * p; a *= 0.5; } return s; }',
+    'void main(){',
+    '  float asp = uRes.x / uRes.y;',
+    '  vec2 p = vec2((v.x - 0.5) * asp, v.y - 0.5) + uPtr * 0.02;',
+    '  float t = uTime * 0.035;',
+    '  float k = uProg;',
+    // 深空底色：上方偏藍、下方近黑
+    '  vec3 col = mix(vec3(0.006, 0.009, 0.020), vec3(0.018, 0.040, 0.085), smoothstep(-0.5, 0.55, p.y));',
+    // 星雲：兩層 domain warp；捲動進度推動星雲漂移
+    '  vec2 q = vec2(fbm(p * 1.8 + vec2(0.0, t)), fbm(p * 1.8 + vec2(5.2, 1.3 - t)));',
+    '  vec2 r = vec2(fbm(p * 2.2 + 2.0 * q + vec2(1.7 + k * 1.6, 9.2)), fbm(p * 2.2 + 2.0 * q + vec2(8.3, 2.8 - k)));',
+    '  float n = fbm(p * 2.0 + 2.4 * r);',
+    '  vec3 neb = mix(vec3(0.055, 0.15, 0.30), vec3(0.17, 0.36, 0.53), smoothstep(0.2, 0.75, n));',
+    '  neb = mix(neb, vec3(0.45, 0.40, 0.85), smoothstep(0.45, 0.95, r.x) * 0.6);',
+    '  neb = mix(neb, vec3(0.55, 0.78, 1.0), smoothstep(0.62, 1.0, n * r.y) * 0.55);',
+    '  float band = smoothstep(-0.12, 0.38, p.y) * (1.0 - smoothstep(0.44, 0.64, p.y));',
+    '  col += neb * (n * n * 1.6) * band;',
+    // 光帶：沿流動曲線的極光簾幕
+    '  float y0 = 0.14 + 0.08 * sin(p.x * 1.4 + t * 4.0 + k * 3.0) + 0.06 * (fbm(vec2(p.x * 1.2 + t, k)) - 0.5);',
+    '  float d = p.y - y0;',
+    '  float curtain = fbm(vec2(p.x * 7.0 - t * 3.0, p.y * 1.5 + t));',
+    '  float ribbon = exp(-d * d * 55.0) * (0.35 + 0.65 * curtain);',
+    '  col += mix(vec3(0.18, 0.46, 0.95), vec3(0.40, 0.92, 0.92), smoothstep(-0.7, 0.7, p.x + 0.2 * sin(t * 2.0))) * ribbon * 0.55;',
+    // 右上方遠處的光暈，給畫面一個焦點
+    '  col += vec3(0.35, 0.55, 0.95) * exp(-length(p - vec2(0.28 * asp, 0.30)) * 4.5) * 0.22;',
+    // 下方文字區壓暗、四角暗角、抖動去色階
+    '  col *= mix(0.30, 1.0, smoothstep(-0.38, 0.02, p.y));',
+    '  vec2 vq = v - 0.5;',
+    '  col *= 1.0 - dot(vq, vq) * 0.85;',
+    '  col += (h21(gl_FragCoord.xy + fract(uTime * 7.0)) - 0.5) / 255.0;',
+    '  gl_FragColor = vec4(max(col, 0.0), 1.0);',
+    '}'
+  ].join('\n');
+  const GL_STATIC_TIME = 18.0;   // 減少動態時固定的畫面時間
+  let gl = null;
+  let uRes, uTime, uProg, uPtr;
+  let glRunning = false, glStopped = false;
+  let glScale = 0.5;             // 內部解析度比例（星雲本來就柔，半解析度放大即可）；太慢會自動再降
+  let lastGL = 0, slowFrames = 0;
+  const glT0 = performance.now();
+  let progSmooth = 0;
+  const ptr = [0, 0], ptrTarget = [0, 0];
+
+  function initGL() {
+    const opts = { alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: false, preserveDrawingBuffer: false, powerPreference: 'low-power' };
+    try { gl = glCanvas.getContext('webgl2', opts) || glCanvas.getContext('webgl', opts); } catch (e) { gl = null; }
+    if (!gl) return false;
+    const compile = (type, src) => {
+      const s = gl.createShader(type);
+      gl.shaderSource(s, src);
+      gl.compileShader(s);
+      return gl.getShaderParameter(s, gl.COMPILE_STATUS) ? s : null;
+    };
+    const vs = compile(gl.VERTEX_SHADER, GL_VERT);
+    const fs = compile(gl.FRAGMENT_SHADER, GL_FRAG);
+    if (!vs || !fs) { gl = null; return false; }
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { gl = null; return false; }
+    gl.useProgram(prog);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);   // 一個蓋滿畫面的三角形
+    const loc = gl.getAttribLocation(prog, 'p');
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    uRes = gl.getUniformLocation(prog, 'uRes');
+    uTime = gl.getUniformLocation(prog, 'uTime');
+    uProg = gl.getUniformLocation(prog, 'uProg');
+    uPtr = gl.getUniformLocation(prog, 'uPtr');
+    return true;
+  }
+
+  function drawGL(time) {
+    const dpr = Math.min(devicePixelRatio || 1, 2);
+    const w = Math.max(1, Math.round(window.innerWidth * dpr * glScale));
+    const h = Math.max(1, Math.round(window.innerHeight * dpr * glScale));
+    if (glCanvas.width !== w || glCanvas.height !== h) { glCanvas.width = w; glCanvas.height = h; }
+    gl.viewport(0, 0, w, h);
+    gl.uniform2f(uRes, w, h);
+    gl.uniform1f(uTime, time);
+    gl.uniform1f(uProg, progSmooth);
+    gl.uniform2f(uPtr, ptr[0], ptr[1]);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    bgInfo.renders++;
+  }
+
+  function renderStaticGL() {
+    if (!gl || glStopped) return;
+    progSmooth = 0; ptr[0] = 0; ptr[1] = 0;
+    drawGL(GL_STATIC_TIME);
+  }
+
+  function glLoop(now) {
+    if (!glRunning) return;
+    if (glStopped || document.hidden || reduceMotion.matches) {
+      glRunning = false;
+      if (!glStopped && reduceMotion.matches) renderStaticGL();
+      return;
+    }
+    // 平常約 30fps（緩慢漂移用不到更高），捲動中每幀更新
+    if (now - lastScrollAt < 300 || now - lastGL >= 32) {
+      const dt = lastGL ? now - lastGL : 0;
+      lastGL = now;
+      progSmooth += (getProgress() - progSmooth) * 0.12;
+      ptr[0] += (ptrTarget[0] - ptr[0]) * 0.05;
+      ptr[1] += (ptrTarget[1] - ptr[1]) * 0.05;
+      drawGL((now - glT0) / 1000);
+      // 連續 20 幀都慢（>50ms）就把內部解析度降一級，最低 0.3
+      if (dt > 50 && dt < 1000) {
+        if (++slowFrames > 20 && glScale > 0.3) { glScale = Math.max(0.3, glScale * 0.8); slowFrames = 0; }
+      } else if (slowFrames > 0) {
+        slowFrames--;
+      }
+    }
+    requestAnimationFrame(glLoop);
+  }
+
+  function startGL() {
+    if (!gl || glStopped) return;
+    if (reduceMotion.matches) { renderStaticGL(); return; }
+    if (glRunning || document.hidden) return;
+    glRunning = true;
+    lastGL = 0;
+    requestAnimationFrame(glLoop);
+  }
+
+  // 影片就緒：停止渲染、隱藏圖層並釋放 GPU 資源
+  function stopGL() {
+    glStopped = true;
+    glRunning = false;
+    bgInfo.state = 'video';
+    bgLayer.style.visibility = 'hidden';
+    const lose = gl && gl.getExtension('WEBGL_lose_context');
+    if (lose) lose.loseContext();
+  }
+
+  glCanvas.addEventListener('webglcontextlost', e => {
+    e.preventDefault();
+    glRunning = false;
+    if (!glStopped) { bgLayer.classList.remove('gl-on'); bgInfo.state = 'css'; }
+  });
+  glCanvas.addEventListener('webglcontextrestored', () => {
+    if (!glStopped && initGL()) { bgLayer.classList.add('gl-on'); bgInfo.state = 'webgl'; startGL(); }
+  });
+  if (window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+    window.addEventListener('pointermove', e => {
+      ptrTarget[0] = e.clientX / window.innerWidth * 2 - 1;
+      ptrTarget[1] = 1 - e.clientY / window.innerHeight * 2;
+    }, { passive: true });
+  }
+
+  if (initGL()) {
+    renderStaticGL();                  // 先畫好第一幀再淡入，避免閃一下空白
+    bgLayer.classList.add('gl-on');
+    bgInfo.state = 'webgl';
+    startGL();
+  }
+  maybeLoadVideo();
 
   // ===================== PARTICLES =====================
   let particles = [];
@@ -472,8 +692,15 @@ nav .social svg { width: 1.25rem; height: 1.25rem; }
 
   resizeParticles();
   window.addEventListener('resize', resizeParticles);
-  document.addEventListener('visibilitychange', startParticles);
-  onMediaChange(reduceMotion, () => { startParticles(); lastFrameIndex = -1; requestTick(); });
+  // 回到前景時重新啟動粒子與程序化背景（隱藏時兩者的迴圈會自己停）
+  document.addEventListener('visibilitychange', () => { startParticles(); startGL(); });
+  onMediaChange(reduceMotion, () => {
+    startParticles();
+    startGL();
+    maybeLoadVideo();
+    lastFrameIndex = -1;
+    requestTick();
+  });
   onMediaChange(mobileMQ, requestTick);
   startParticles();
 
