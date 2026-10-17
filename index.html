@@ -3,7 +3,23 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Veldara</title>
+<title>Veldara — 3D worlds on the web with Svelte 5 &amp; Three.js</title>
+<meta name="description" content="Veldara is a concept preview that merges Svelte 5 with Three.js: a composable, declarative API for 3D on the web, with tooling for physics, XR and animation." />
+<link rel="canonical" href="https://wenbin2005.github.io/ccdocs/" />
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+<meta name="theme-color" content="#05080e" />
+<meta name="color-scheme" content="dark" />
+<!-- 分享卡（Open Graph／X） -->
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Veldara" />
+<meta property="og:title" content="Veldara — Instantly craft immersive 3D worlds on the web" />
+<meta property="og:description" content="A concept preview that merges Svelte 5 with Three.js: a composable, declarative API for 3D on the web." />
+<meta property="og:url" content="https://wenbin2005.github.io/ccdocs/" />
+<meta property="og:image" content="https://wenbin2005.github.io/ccdocs/assets/og-image.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="Veldara — Instantly craft immersive 3D worlds on the web. Svelte 5 × Three.js concept preview." />
+<meta name="twitter:card" content="summary_large_image" />
 <!-- 有 JS 才套用「捲動後才出現」的初始隱藏狀態；停用 JS 時內容直接可見 -->
 <script>document.documentElement.className += ' js';</script>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -21,6 +37,7 @@
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 /* 動效 token：進出場用強 ease-out，畫面內移動用 ease-in-out；按壓回饋 160ms */
 :root {
+  color-scheme: dark;
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --dur-press: 160ms;
